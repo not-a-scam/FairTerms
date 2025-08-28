@@ -176,29 +176,77 @@ async function llmRiskPass(engine: any, finalBullets: string) {
 }
 
 // ---------- Orchestration ----------
+// async function summariseTermsAndConditions(fullText: string, url: string, title: string) {
+//   const engine = await getEngine();
+
+//   // If short, one-shot
+//   if (fullText.length <= 6000) {
+//     const bullets = await llmSummariseTnCChunk(engine, fullText, title, url);
+//     const risks = await llmRiskPass(engine, bullets);
+//     return `### Key Terms & Conditions\n${bullets || "- (No key points found)"}\n\n### Potential Risks\n${risks || "- (No obvious risks detected)"}`;
+//   }
+
+//   // Long: chunk → summarise each → combine → risk pass
+//   const chunks = splitIntoChunks(fullText, 6000);
+//   const partials: string[] = [];
+//   for (const c of chunks) {
+//     if (partials.length >= 8) break; // cap work for huge docs
+//     const out = await llmSummariseTnCChunk(engine, c, title, url);
+//     if (out) partials.push(out);
+//   }
+
+//   const combined = partials.length
+//     ? await llmCombineBullets(engine, partials)
+//     : "- (No key points found)";
+
+//   const risks = await llmRiskPass(engine, combined);
+//   return `### Key Terms & Conditions\n${combined}\n\n### Potential Risks\n${risks || "- (No obvious risks detected)"}`;
+// }
 async function summariseTermsAndConditions(fullText: string, url: string, title: string) {
   const engine = await getEngine();
 
+  // Helper to send progress (0–100)
+  const sendProgress = (percent: number) => {
+    try {
+      chrome.runtime.sendMessage({ type: "MODEL_PROGRESS", progress: percent });
+    } catch {
+      // ignore if popup not listening
+    }
+  };
+
   // If short, one-shot
   if (fullText.length <= 6000) {
+    sendProgress(0);
     const bullets = await llmSummariseTnCChunk(engine, fullText, title, url);
+    sendProgress(50); // midway: summarisation done
     const risks = await llmRiskPass(engine, bullets);
+    sendProgress(100); // done
     return `### Key Terms & Conditions\n${bullets || "- (No key points found)"}\n\n### Potential Risks\n${risks || "- (No obvious risks detected)"}`;
   }
 
   // Long: chunk → summarise each → combine → risk pass
   const chunks = splitIntoChunks(fullText, 6000);
   const partials: string[] = [];
-  for (const c of chunks) {
-    if (partials.length >= 8) break; // cap work for huge docs
-    const out = await llmSummariseTnCChunk(engine, c, title, url);
+
+  for (let i = 0; i < chunks.length && partials.length < 8; i++) {
+    const chunk = chunks[i];
+    const out = await llmSummariseTnCChunk(engine, chunk, title, url);
     if (out) partials.push(out);
+
+    // Send progress after each chunk
+    const percent = Math.round(((i + 1) / chunks.length) * 70); 
+    // 0–70%: summarising chunks, 30% reserved for combining + risk pass
+    sendProgress(percent);
   }
 
   const combined = partials.length
     ? await llmCombineBullets(engine, partials)
     : "- (No key points found)";
 
+  sendProgress(85); // after combining bullets
+
   const risks = await llmRiskPass(engine, combined);
+  sendProgress(100); // done
+
   return `### Key Terms & Conditions\n${combined}\n\n### Potential Risks\n${risks || "- (No obvious risks detected)"}`;
 }

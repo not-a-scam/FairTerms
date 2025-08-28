@@ -1,14 +1,27 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Popup() {
   const [loading, setLoading] = useState(false);
   const [md, setMd] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [progress, setProgress] = useState<number | null>(null); // 0 to 100
+
+  useEffect(() => {
+    // Listen for background/offscreen progress messages
+    const listener = (msg: any) => {
+      if (msg?.type === "MODEL_PROGRESS" && typeof msg.progress === "number") {
+        setProgress(msg.progress);
+      }
+    };
+    chrome.runtime.onMessage.addListener(listener);
+    return () => chrome.runtime.onMessage.removeListener(listener);
+  }, []);
 
   async function handleClick() {
     setLoading(true);
     setErr(null);
     setMd(null);
+    setProgress(0);
     try {
       const resp = await chrome.runtime.sendMessage({ type: "RUN_SUMMARY" });
       if (resp?.ok) setMd(resp.markdown);
@@ -17,6 +30,7 @@ export default function Popup() {
       setErr(String(e?.message || e));
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   }
 
@@ -26,6 +40,21 @@ export default function Popup() {
       <button onClick={handleClick} disabled={loading} style={{ padding: "6px 10px" }}>
         {loading ? "Summarising…" : "Summarise this page"}
       </button>
+
+      {/* Progress bar */}
+      {loading && progress !== null && (
+        <div style={{ marginTop: 10, width: "100%", background: "#eee", borderRadius: 4 }}>
+          <div
+            style={{
+              width: `${Math.round(progress)}%`,
+              height: 8,
+              background: "#4caf50",
+              borderRadius: 4,
+              transition: "width 0.2s ease"
+            }}
+          />
+        </div>
+      )}
 
       {err && (
         <pre style={{ color: "crimson", whiteSpace: "pre-wrap", marginTop: 10, maxHeight: 180, overflow: "auto" }}>
