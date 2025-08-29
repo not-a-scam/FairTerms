@@ -7,32 +7,33 @@ export default function Popup() {
   const [progress, setProgress] = useState<number | null>(null); // 0 to 100
   const [hovered, setHovered] = useState(false);
 
+  // Listen for background state updates
   useEffect(() => {
-    // Listen for background/offscreen progress messages
     const listener = (msg: any) => {
-      if (msg?.type === "MODEL_PROGRESS" && typeof msg.progress === "number") {
+      if (msg?.type === "STATE_UPDATE") {
+        setLoading(msg.loading);
         setProgress(msg.progress);
+        setMd(msg.markdown);
+        setErr(msg.error);
       }
     };
     chrome.runtime.onMessage.addListener(listener);
+
+    // Get initial state immediately
+    chrome.runtime.sendMessage({ type: "GET_STATE" }, (resp: any) => {
+      if (resp) {
+        setLoading(resp.loading);
+        setProgress(resp.progress);
+        setMd(resp.markdown);
+        setErr(resp.error);
+      }
+    });
+
     return () => chrome.runtime.onMessage.removeListener(listener);
   }, []);
 
   async function handleClick() {
-    setLoading(true);
-    setErr(null);
-    setMd(null);
-    setProgress(0);
-    try {
-      const resp = await chrome.runtime.sendMessage({ type: "RUN_SUMMARY" });
-      if (resp?.ok) setMd(resp.markdown);
-      else setErr(resp?.error || "Unknown error (no details)");
-    } catch (e: any) {
-      setErr(String(e?.message || e));
-    } finally {
-      setLoading(false);
-      setProgress(null);
-    }
+    chrome.runtime.sendMessage({ type: "RUN_SUMMARY" });
   }
 
   return (

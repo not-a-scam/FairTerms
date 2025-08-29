@@ -5,8 +5,23 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Persistent summariser state
+let summariserState = {
+  loading: false,
+  progress: 0,
+  markdown: null as string | null,
+  error: null as string | null,
+};
+
+// Broadcast updated state to all popups
+function broadcastState() {
+  chrome.runtime.sendMessage({
+    type: "STATE_UPDATE",
+    ...summariserState
+  });
+}
+
 // Find a loadable offscreen HTML inside the packed extension.
-// Adjust the candidate list if your build places it elsewhere.
 async function resolveOffscreenURL(): Promise<string> {
   const candidates = [
     "offscreen.html",      // root (preferred)
@@ -80,7 +95,7 @@ async function ensureOffscreen(): Promise<void> {
       justification: "Run WebLLM (WebGPU) in a hidden page."
     });
   } catch (e: any) {
-    // If it already exists, creation can throw; surface only real failures.
+	// If it already exists, creation can throw; surface only real failures.
     console.error("[bg] offscreen.createDocument failed:", e);
     throw e;
   }
@@ -125,6 +140,12 @@ async function getActiveTabText(): Promise<{ text: string; url: string; title: s
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     if (msg?.type === "RUN_SUMMARY") {
+      summariserState.loading = true;
+      summariserState.progress = 0;
+      summariserState.markdown = null;
+      summariserState.error = null;
+      broadcastState();
+
       try {
         const { text, url, title } = await getActiveTabText();
         await ensureOffscreen();
@@ -135,11 +156,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           title
         });
         if (!resp) throw new Error("Offscreen did not respond.");
+
+        summariserState.loading = false;
+        summariserState.progress = 100;
+        summariserState.markdown = resp.markdown;
+        summariserState.error = null;
+        broadcastState();
+
         sendResponse(resp);
       } catch (e: any) {
-        console.error("[bg] RUN_SUMMARY error:", e);
-        sendResponse({ ok: false, error: e?.message || String(e) });
+        summariserState.loading = false;
+        summariserState.progress = 0;
+        summariserState.markdown = null;
+        summariserState.error = e?.message || String(e);
+        broadcastState();
+
+        sendResponse({ ok: false, error: summariserState.error });
       }
+    } else if (msg?.type === "GET_STATE") {
+      sendResponse(summariserState);
+    } else if (msg?.type === "MODEL_PROGRESS" && typeof msg.progress === "number") {
+      summariserState.progress = msg.progress;
+      broadcastState();
     }
   })();
   return true; // keep the message channel open for async reply
