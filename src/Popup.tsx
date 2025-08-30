@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export default function Popup() {
   const [loading, setLoading] = useState(false);
   const [md, setMd] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [progress, setProgress] = useState<number | null>(null); // 0 to 100
+  const [progress, setProgress] = useState<number | null>(null);
   const [hovered, setHovered] = useState(false);
 
-  // Listen for background state updates
   useEffect(() => {
     const listener = (msg: any) => {
       if (msg?.type === "STATE_UPDATE") {
@@ -19,7 +20,6 @@ export default function Popup() {
     };
     chrome.runtime.onMessage.addListener(listener);
 
-    // Get initial state immediately
     chrome.runtime.sendMessage({ type: "GET_STATE" }, (resp: any) => {
       if (resp) {
         setLoading(resp.loading);
@@ -50,7 +50,6 @@ export default function Popup() {
         alignItems: "center",
       }}
     >
-      {/* Header */}
       <h3
         style={{
           margin: 0,
@@ -67,7 +66,6 @@ export default function Popup() {
         FairTerms
       </h3>
 
-      {/* Summarise Button */}
       <button
         onClick={handleClick}
         disabled={loading}
@@ -94,7 +92,6 @@ export default function Popup() {
         {loading ? "Summarising…" : "Summarise this page"}
       </button>
 
-      {/* Progress Bar */}
       {loading && progress !== null && (
         <div
           style={{
@@ -117,7 +114,6 @@ export default function Popup() {
         </div>
       )}
 
-      {/* Error */}
       {err && (
         <pre
           style={{
@@ -138,7 +134,7 @@ export default function Popup() {
         </pre>
       )}
 
-      {/* Markdown Summary */}
+      {/* Markdown Renderer */}
       {md && (
         <div
           style={{
@@ -155,13 +151,10 @@ export default function Popup() {
             width: "100%",
           }}
         >
-          {md.split("\n").map((line, i) => (
-            <div key={i}>{line}</div>
-          ))}
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown>
         </div>
       )}
 
-      {/* Instruction */}
       {!md && !err && !loading && (
         <p
           style={{

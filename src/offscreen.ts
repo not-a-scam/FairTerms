@@ -141,8 +141,11 @@ async function llmCombineBullets(engine: any, bulletsBlocks: string[]) {
     {
       role: "system",
       content:
-        "Combine bullets from multiple sections into a single list of the 5–7 most important points. " +
-        "Avoid repetition. Output ONLY markdown bullets—no headings or preambles."
+      "Combine bullets from multiple sections into a single list of the 5–7 most important, DISTINCT points. " +
+      "Avoid repetition; MERGE near-duplicates. Prefer topical diversity (fees/payment, data practices, cancellation/termination, " +
+      "content/IP rights, dispute resolution/governing law, unilateral changes). " +
+      "Output ONLY markdown bullets—no headings or preambles."
+
     },
     { role: "user", content: clampChars(joined, 12000) }
   ];
@@ -176,32 +179,27 @@ async function llmRiskPass(engine: any, finalBullets: string) {
 }
 
 // ---------- Orchestration ----------
-// async function summariseTermsAndConditions(fullText: string, url: string, title: string) {
-//   const engine = await getEngine();
+function dedupeBullets(md: string): string {
+  const seen = new Set<string>();
+  return md
+    .split(/\r?\n/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .filter(line => line.startsWith("-")) // only bullets
+    .map(line => {
+      // normalize: lowercase + strip trailing punctuation
+      return line.replace(/[-*•]\s+/, "- ").trim().replace(/[.,;:]$/, "").toLowerCase();
+    })
+    .filter(line => {
+      if (seen.has(line)) return false;
+      seen.add(line);
+      return true;
+    })
+    .map(line => "- " + line.slice(2)) // re-add clean dash
+    .join("\n");
+}
 
-//   // If short, one-shot
-//   if (fullText.length <= 6000) {
-//     const bullets = await llmSummariseTnCChunk(engine, fullText, title, url);
-//     const risks = await llmRiskPass(engine, bullets);
-//     return `### Key Terms & Conditions\n${bullets || "- (No key points found)"}\n\n### Potential Risks\n${risks || "- (No obvious risks detected)"}`;
-//   }
 
-//   // Long: chunk → summarise each → combine → risk pass
-//   const chunks = splitIntoChunks(fullText, 6000);
-//   const partials: string[] = [];
-//   for (const c of chunks) {
-//     if (partials.length >= 8) break; // cap work for huge docs
-//     const out = await llmSummariseTnCChunk(engine, c, title, url);
-//     if (out) partials.push(out);
-//   }
-
-//   const combined = partials.length
-//     ? await llmCombineBullets(engine, partials)
-//     : "- (No key points found)";
-
-//   const risks = await llmRiskPass(engine, combined);
-//   return `### Key Terms & Conditions\n${combined}\n\n### Potential Risks\n${risks || "- (No obvious risks detected)"}`;
-// }
 async function summariseTermsAndConditions(fullText: string, url: string, title: string) {
   const engine = await getEngine();
 
@@ -242,6 +240,9 @@ async function summariseTermsAndConditions(fullText: string, url: string, title:
   const combined = partials.length
     ? await llmCombineBullets(engine, partials)
     : "- (No key points found)";
+
+  // 🔹 Deduplicate here
+  // const deduped = dedupeBullets(combined);
 
   sendProgress(85); // after combining bullets
 
